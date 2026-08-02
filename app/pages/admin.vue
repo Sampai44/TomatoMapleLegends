@@ -20,7 +20,7 @@
                         :alt="selectedBoss.name"
                         class="boss-thumb"
                       />
-                      <span class="boss-select-name">{{ selectedBoss?.name ?? form.boss || 'Pick a boss…' }}</span>
+                      <span class="boss-select-name">{{ (selectedBoss?.name ?? form.boss) || 'Pick a boss…' }}</span>
                       <span v-if="selectedBoss" class="boss-select-meta">{{ selectedBoss.levelLabel }}</span>
                       <span class="boss-caret">▾</span>
                     </button>
