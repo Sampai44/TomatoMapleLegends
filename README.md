@@ -1,5 +1,7 @@
 # Tomato — MapleLegends Guild Website
 
+Live at https://tomato-guild.vercel.app — deployed via Vercel from the main branch.
+
 A guild website for the MapleLegends guild **Tomato**, built with **Nuxt 4**,
 **Supabase** and deployed on **Vercel**. The roster is scraped automatically
 from the [legends.ml guild member rankings](https://legends.ml/ranking/guildmembers?search=Tomato).
