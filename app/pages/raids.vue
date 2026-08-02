@@ -93,6 +93,53 @@
               </ul>
             </div>
 
+            <div v-if="raid.drops.length || raid.split.attackers" class="loot-public">
+              <div class="loot-pub-head">
+                <span class="loot-pub-title">Loot split</span>
+                <span class="chip raid-chip boss-lv">{{ raid.split.attackers }} attacker{{ raid.split.attackers === 1 ? '' : 's' }}</span>
+              </div>
+              <div class="loot-pub-stats">
+                <span class="loot-pub-stat">
+                  <strong>{{ mesos(raid.split.totalValue) }}</strong>
+                  <small>total</small>
+                </span>
+                <span class="loot-pub-stat">
+                  <strong>{{ mesos(raid.split.soldPerAttacker) }}</strong>
+                  <small>paid each</small>
+                </span>
+                <span class="loot-pub-stat">
+                  <strong>{{ mesos(raid.split.pendingPerAttacker) }}</strong>
+                  <small>remaining each</small>
+                </span>
+                <span class="loot-pub-stat">
+                  <strong>{{ raid.split.pendingCount }}</strong>
+                  <small>listed</small>
+                </span>
+              </div>
+              <ul v-if="raid.drops.length" class="drop-pub-list">
+                <li v-for="d in raid.drops" :key="d.id" class="drop-pub-row">
+                  <span class="drop-pub-item">{{ d.item }}</span>
+                  <span class="chip raid-chip" :class="'drop-' + d.disposition">{{ DROP_SHORT[d.disposition] }}</span>
+                  <template v-if="d.disposition === 'sold'">
+                    <span class="muted">sold {{ mesos(d.sold_price) }}</span>
+                    <span v-if="d.sold_to" class="muted">→ {{ d.sold_to }}</span>
+                    <span class="muted">+{{ mesos(perShare(raid, d.sold_price)) }} each</span>
+                  </template>
+                  <template v-else-if="d.disposition === 'fm'">
+                    <span class="muted">listed {{ mesos(d.price) }}</span>
+                    <span v-if="d.sold_to" class="muted">→ {{ d.sold_to }}</span>
+                    <span class="muted">+{{ mesos(perShare(raid, d.price)) }} each if sold</span>
+                  </template>
+                  <template v-else-if="d.disposition === 'kept'">
+                    <span class="muted">kept by {{ d.kept_by || raid.leader || 'leader' }}</span>
+                  </template>
+                  <template v-else>
+                    <span class="muted">not yet decided</span>
+                  </template>
+                </li>
+              </ul>
+            </div>
+
             <footer class="raid-foot">
               <template v-if="mySignups[raid.id]?.length">
                 <div class="my-signup">
@@ -171,6 +218,7 @@ import {
   useRaids,
   formatDateTime,
   formatTimestamp,
+  mesos,
   filledFor,
   raidFull,
   SIGNUP_LABEL,
@@ -178,6 +226,17 @@ import {
   type Signup
 } from '~/composables/useRaids'
 import { bossOf } from '#shared/bosses'
+
+const DROP_SHORT: Record<string, string> = {
+  sold: 'Sold',
+  fm: 'FM',
+  kept: 'Kept',
+  unsold: 'Undecided'
+}
+
+function perShare(raid: Raid, amount: number) {
+  return raid.split.attackers > 0 ? Math.floor(amount / raid.split.attackers) : 0
+}
 
 useSeoMeta({
   title: 'Boss Raids — Tomato Guild',

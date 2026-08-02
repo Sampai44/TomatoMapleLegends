@@ -28,3 +28,5 @@ logs
 
 # scratch output
 /_*.txt
+.vercel
+.env*

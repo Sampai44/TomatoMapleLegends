@@ -48,14 +48,89 @@ export interface RaidRow {
   created_at: string
 }
 
+export type DropDisposition = 'unsold' | 'fm' | 'sold' | 'kept'
+
+export interface DropRow {
+  id: number
+  raid_id: number
+  item: string
+  disposition: DropDisposition
+  price: number
+  sold_price: number
+  sold_to: string
+  kept_by: string
+  noted_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RaidSplit {
+  attackers: number
+  soldValue: number
+  pendingValue: number
+  totalValue: number
+  perAttacker: number
+  soldPerAttacker: number
+  pendingPerAttacker: number
+  soldCount: number
+  pendingCount: number
+  keptCount: number
+  unsoldCount: number
+}
+
 export interface RaidView extends RaidRow {
   signups: SignupRow[]
+  drops: DropRow[]
+  split: RaidSplit
   totals: {
     participantSeats: number
     participantTaken: number
     buyerSeats: number
     buyerTaken: number
     closed: boolean
+  }
+}
+
+/** Equal-share loot split across the approved participant attackers. */
+export function computeRaidSplit(signups: SignupRow[], drops: DropRow[]): RaidSplit {
+  const attackers = signups.filter((s) => s.kind === 'participant' && s.status === 'approved').length
+  let soldValue = 0
+  let soldCount = 0
+  let pendingValue = 0 // FM list price of not-yet-sold items
+  let pendingCount = 0
+  let keptCount = 0
+  let unsoldCount = 0
+
+  for (const d of drops) {
+    if (d.disposition === 'sold') {
+      soldValue += Number(d.sold_price ?? 0)
+      soldCount++
+    } else if (d.disposition === 'fm') {
+      pendingValue += Number(d.price ?? 0)
+      pendingCount++
+    } else if (d.disposition === 'kept') {
+      keptCount++
+    } else {
+      unsoldCount++
+    }
+  }
+
+  const per = (total: number) => (attackers > 0 ? Math.floor(total / attackers) : 0)
+  const soldPerAttacker = per(soldValue)
+  const pendingPerAttacker = per(pendingValue)
+
+  return {
+    attackers,
+    soldValue,
+    pendingValue,
+    totalValue: soldValue + pendingValue,
+    soldPerAttacker,
+    pendingPerAttacker,
+    perAttacker: soldPerAttacker + pendingPerAttacker,
+    soldCount,
+    pendingCount,
+    keptCount,
+    unsoldCount
   }
 }
 
@@ -162,6 +237,12 @@ export async function listRaids(event: H3Event): Promise<{ raids: RaidView[] }> 
 
   if (signupError) throw createError({ statusCode: 500, statusMessage: signupError.message })
 
+  const { data: drops, error: dropError } = raidIds.length
+    ? await client.from('raid_drops').select('*').in('raid_id', raidIds).order('id')
+    : { data: [] as DropRow[], error: null }
+
+  if (dropError) throw createError({ statusCode: 500, statusMessage: dropError.message })
+
   const isAdmin = ctx.role === 'admin'
   const byRaid = new Map<number, SignupRow[]>()
   for (const s of signups ?? []) {
@@ -170,10 +251,18 @@ export async function listRaids(event: H3Event): Promise<{ raids: RaidView[] }> 
     byRaid.set(s.raid_id, list)
   }
 
+  const dropsByRaid = new Map<number, DropRow[]>()
+  for (const d of drops ?? []) {
+    const list = dropsByRaid.get(d.raid_id) ?? []
+    list.push(d)
+    dropsByRaid.set(d.raid_id, list)
+  }
+
   const now = Date.now()
   return {
     raids: (raids ?? []).map((r) => {
       const all = byRaid.get(r.id) ?? []
+      const raidDrops = dropsByRaid.get(r.id) ?? []
       const visible = isAdmin
         ? all.filter((s) => s.status !== 'declined')
         : all.filter((s) => s.status === 'approved')
@@ -187,6 +276,8 @@ export async function listRaids(event: H3Event): Promise<{ raids: RaidView[] }> 
       return {
         ...r,
         signups: visible,
+        drops: raidDrops,
+        split: computeRaidSplit(all, raidDrops),
         totals: {
           participantSeats,
           participantTaken: Math.min(participantTaken, participantSeats),
@@ -307,5 +398,40 @@ export function validateRaidPayload(body: Record<string, unknown>): RaidPayload 
     buyer_price: buyersEnabled ? buyerPrice : 0,
     buyer_limit: buyersEnabled ? buyerLimit : 0,
     status
+  }
+}
+
+export interface DropPayload {
+  item: string
+  disposition: DropDisposition
+  price: number
+  sold_price: number
+  sold_to: string
+  kept_by: string
+}
+
+/** Validate and normalize a drop payload from a jr master. */
+export function validateDropPayload(body: Record<string, unknown>): DropPayload {
+  const item = String(body.item ?? '').trim().slice(0, 40)
+  if (!item) throw createError({ statusCode: 400, statusMessage: 'Item name is required (max 40 chars)' })
+
+  const dispositionRaw = String(body.disposition ?? 'unsold')
+  const disposition: DropDisposition = ['unsold', 'fm', 'sold', 'kept'].includes(dispositionRaw)
+    ? (dispositionRaw as DropDisposition)
+    : 'unsold'
+
+  const num = (v: unknown) => {
+    const n = Number(v ?? 0)
+    if (!Number.isFinite(n) || n < 0) throw createError({ statusCode: 400, statusMessage: 'Amounts must be non-negative numbers' })
+    return Math.floor(n)
+  }
+
+  return {
+    item,
+    disposition,
+    price: disposition === 'fm' ? num(body.price) : 0,
+    sold_price: disposition === 'sold' ? num(body.soldPrice ?? body.sold_price) : 0,
+    sold_to: String(disposition === 'sold' ? (body.soldTo ?? body.sold_to ?? '') : '').trim().slice(0, 40),
+    kept_by: String(disposition === 'kept' ? (body.keptBy ?? body.kept_by ?? '') : '').trim().slice(0, 40)
   }
 }

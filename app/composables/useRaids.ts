@@ -27,6 +27,36 @@ export interface Signup {
   created_at: string
 }
 
+export type DropDisposition = 'unsold' | 'fm' | 'sold' | 'kept'
+
+export interface Drop {
+  id: number
+  raid_id: number
+  item: string
+  disposition: DropDisposition
+  price: number
+  sold_price: number
+  sold_to: string
+  kept_by: string
+  noted_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RaidSplit {
+  attackers: number
+  soldValue: number
+  pendingValue: number
+  totalValue: number
+  perAttacker: number
+  soldPerAttacker: number
+  pendingPerAttacker: number
+  soldCount: number
+  pendingCount: number
+  keptCount: number
+  unsoldCount: number
+}
+
 export interface Raid {
   id: number
   boss: string
@@ -43,6 +73,8 @@ export interface Raid {
   status: string
   created_at: string
   signups: Signup[]
+  drops: Drop[]
+  split: RaidSplit
   totals: {
     participantSeats: number
     participantTaken: number
@@ -50,6 +82,17 @@ export interface Raid {
     buyerTaken: number
     closed: boolean
   }
+}
+
+export const DROP_LABEL: Record<Drop['disposition'], string> = {
+  unsold: 'Unsold / undecided',
+  fm: 'FM listed',
+  sold: 'Sold',
+  kept: 'Kept'
+}
+
+export function mesos(n: number) {
+  return `${Math.floor(n).toLocaleString()} mesos`
 }
 
 export interface RaidPayload {
@@ -105,7 +148,22 @@ export function useRaids() {
     await refresh()
   }
 
-  return { raids, pending, error, refresh, signUp, withdraw, approveSignup, declineSignup, createRaid, updateRaid, deleteRaid }
+  async function addDrop(raidId: number, drop: Partial<Drop>) {
+    await $fetch('/api/admin/drops', { method: 'POST', body: { raidId, ...drop } })
+    await refresh()
+  }
+
+  async function updateDrop(id: number, patch: Partial<Drop>) {
+    await $fetch(`/api/admin/drops/${id}`, { method: 'PUT', body: patch })
+    await refresh()
+  }
+
+  async function deleteDrop(id: number) {
+    await $fetch(`/api/admin/drops/${id}`, { method: 'DELETE' })
+    await refresh()
+  }
+
+  return { raids, pending, error, refresh, signUp, withdraw, approveSignup, declineSignup, createRaid, updateRaid, deleteRaid, addDrop, updateDrop, deleteDrop }
 }
 
 /** Seats taken (approved) per (party, job) key. */

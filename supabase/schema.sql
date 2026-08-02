@@ -156,3 +156,40 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.raid_signups;
 exception when duplicate_object then null; end $$;
+
+-- ============ Boss drops & loot split ============
+-- Run this block (from here to end) in the Supabase SQL editor to add the
+-- boss-drop tracker to an already-provisioned database.
+
+drop table if exists public.raid_drops;
+
+create table if not exists public.raid_drops (
+  id bigint generated always as identity primary key,
+  raid_id bigint not null references public.boss_raids(id) on delete cascade,
+  item text not null,
+  -- unsold = dropped, not yet decided (not counted)
+  -- fm    = listed in the free market at `price` (counted at list price)
+  -- sold  = sold; proceeds in `sold_price` (counted as realized)
+  -- kept  = given to someone (leader by default), excluded from the split
+  disposition text not null default 'unsold' check (disposition in ('unsold','fm','sold','kept')),
+  price numeric not null default 0,        -- FM list price (dynamic)
+  sold_price numeric not null default 0,   -- mesos actually received when sold
+  sold_to text not null default '',        -- who bought it (optional)
+  kept_by text not null default '',        -- who kept it (defaults to the raid leader)
+  noted_by uuid references auth.users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_drops_raid on public.raid_drops (raid_id);
+
+alter table public.raid_drops enable row level security;
+
+drop policy if exists "drops are publicly readable" on public.raid_drops;
+create policy "drops are publicly readable"
+  on public.raid_drops for select
+  using (true);
+
+do $$ begin
+  alter publication supabase_realtime add table public.raid_drops;
+exception when duplicate_object then null; end $$;

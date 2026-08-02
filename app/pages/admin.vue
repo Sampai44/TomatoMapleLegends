@@ -213,6 +213,118 @@
           </div>
         </div>
       </div>
+
+      <div class="card admin-card">
+        <h2>Boss drops &amp; split</h2>
+        <p class="drop-hint">
+          Log each dropped item and its disposition. The split is equal across every approved
+          participant attacker of the raid. Kept items default to the raid leader unless
+          you change who holds them; sold &amp; FM items feed the pool automatically.
+        </p>
+
+        <div v-if="lootableRaids.length === 0" class="empty-state small">No raids available yet.</div>
+
+        <div v-for="r in lootableRaids" :key="r.id" class="loot-raid">
+          <button type="button" class="loot-raid-head" @click="toggleLoot(r.id)">
+            <span class="loot-raid-title">
+              {{ r.boss }}
+              <span class="muted">· {{ formatDateTime(r.scheduled_at) }}</span>
+            </span>
+            <span class="chip raid-chip">{{ r.split.attackers }} atk{{ attackersOf(r).length === 1 ? '' : 's' }}</span>
+            <span class="chip raid-chip">{{ mesos(r.split.perAttacker) }} each</span>
+            <span class="loot-caret">{{ lootOpen[r.id] ? '▴' : '▾' }}</span>
+          </button>
+
+          <div v-if="lootOpen[r.id]" class="loot-body">
+            <div class="loot-summary">
+              <div class="loot-stat">
+                <span class="loot-label">Total to split</span>
+                <strong class="loot-val">{{ mesos(r.split.totalValue) }}</strong>
+                <small class="muted">{{ r.split.attackers }} attacker{{ r.split.attackers === 1 ? '' : 's' }}</small>
+              </div>
+              <div class="loot-stat">
+                <span class="loot-label">Paid out (sold)</span>
+                <strong class="loot-val">{{ mesos(r.split.soldValue) }}</strong>
+                <small class="muted">{{ mesos(r.split.soldPerAttacker) }} per attacker</small>
+              </div>
+              <div class="loot-stat">
+                <span class="loot-label">Remaining unpaid (FM)</span>
+                <strong class="loot-val">{{ mesos(r.split.pendingValue) }}</strong>
+                <small class="muted">{{ mesos(r.split.pendingPerAttacker) }} per attacker</small>
+              </div>
+            </div>
+
+            <div v-if="r.split.soldCount || r.split.pendingCount" class="loot-dist">
+              <span class="muted">Equal split →</span>
+              <strong>{{ mesos(r.split.perAttacker) }} <span class="muted">each</span></strong>
+              <span class="muted">({{ mesos(r.split.soldPerAttacker) }} paid / {{ mesos(r.split.pendingPerAttacker) }} owing)</span>
+            </div>
+
+            <div v-if="attackersOf(r).length" class="loot-attackers">
+              <span class="loot-label">Attackers</span>
+              <ul class="loot-names">
+                <li v-for="a in attackersOf(r)" :key="a.id">
+                  {{ a.ign }} <span class="muted">{{ a.job || '—' }} Lv{{ a.level }}</span>
+                </li>
+              </ul>
+            </div>
+
+            <ul v-if="r.drops.length" class="drop-list">
+              <li v-for="d in r.drops" :key="d.id" class="drop-row">
+                <template v-if="draftOf(d)">
+                  <input
+                    v-model="draftOf(d).item"
+                    class="drop-item"
+                    aria-label="Item"
+                    placeholder="Item name"
+                  />
+                  <select v-model="draftOf(d).disposition" aria-label="Disposition" @change="saveDrop(d, r.id)">
+                    <option v-for="o in DROP_ORDER" :key="o" :value="o">{{ DROP_LABEL[o] }}</option>
+                  </select>
+                  <template v-if="draftOf(d).disposition === 'fm'">
+                    <input v-model.number="draftOf(d).price" type="number" min="0" class="drop-amt" aria-label="FM price" placeholder="Price" />
+                    <span class="muted">→ {{ shareOf(r, draftOf(d).price) }}</span>
+                  </template>
+                  <template v-else-if="draftOf(d).disposition === 'sold'">
+                    <input v-model.number="draftOf(d).soldPrice" type="number" min="0" class="drop-amt" aria-label="Sold price" placeholder="Sold price" />
+                    <input v-model="draftOf(d).soldTo" maxlength="40" class="drop-amt" placeholder="Bought by" />
+                    <span class="muted">→ {{ shareOf(r, draftOf(d).soldPrice) }}</span>
+                  </template>
+                  <template v-else-if="draftOf(d).disposition === 'kept'">
+                    <input v-model="draftOf(d).keptBy" maxlength="40" class="drop-amt" placeholder="Held by (default leader)" />
+                  </template>
+                  <span class="drop-chip">{{ DROP_LABEL[draftOf(d).disposition] }}</span>
+                  <button class="btn btn-cream btn-sm" @click="saveDrop(d, r.id)">Save</button>
+                  <button class="icon-btn" aria-label="Remove drop" @click="removeDrop(d)">×</button>
+                </template>
+              </li>
+            </ul>
+
+            <div class="drop-add">
+              <input v-model="newDrops[r.id].item" class="drop-item" maxlength="40" placeholder="Item name" />
+              <select v-model="newDrops[r.id].disposition" aria-label="Disposition">
+                <option v-for="o in DROP_ORDER" :key="o" :value="o">{{ DROP_LABEL[o] }}</option>
+              </select>
+              <template v-if="newDrops[r.id].disposition === 'fm'">
+                <input v-model.number="newDrops[r.id].price" type="number" min="0" class="drop-amt" placeholder="Price" />
+              </template>
+              <template v-else-if="newDrops[r.id].disposition === 'sold'">
+                <input v-model.number="newDrops[r.id].soldPrice" type="number" min="0" class="drop-amt" placeholder="Sold price" />
+                <input v-model="newDrops[r.id].soldTo" maxlength="40" class="drop-amt" placeholder="Bought by" />
+              </template>
+              <template v-else-if="newDrops[r.id].disposition === 'kept'">
+                <input
+                  v-model="newDrops[r.id].keptBy"
+                  maxlength="40"
+                  class="drop-amt"
+                  :placeholder="r.leader ? 'Held by (' + r.leader + ')' : 'Held by'"
+                />
+              </template>
+              <button class="btn btn-red btn-sm" :disabled="!newDrops[r.id].item.trim()" @click="addNewDrop(r.id)">Add</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -223,6 +335,10 @@ import {
   useRaids,
   formatDateTime,
   formatTimestamp,
+  mesos,
+  DROP_LABEL,
+  type Drop,
+  type DropDisposition,
   type Raid,
   type Signup
 } from '~/composables/useRaids'
@@ -237,7 +353,7 @@ useSeoMeta({
   ogTitle: 'Admin — Tomato Guild'
 })
 
-const { raids, refresh, approveSignup, declineSignup, createRaid, updateRaid, deleteRaid: deleteRaidApi } = useRaids()
+const { raids, refresh, approveSignup, declineSignup, createRaid, updateRaid, deleteRaid: deleteRaidApi, addDrop, updateDrop, deleteDrop } = useRaids()
 const { showToast } = useToasts()
 useRaidRealtime(refresh)
 
@@ -499,5 +615,104 @@ async function decline(s: Signup) {
 
 function pendingFor(r: Raid) {
   return r.signups.filter((s) => s.status === 'pending').length
+}
+
+interface DropDraft {
+  item: string
+  disposition: DropDisposition
+  price: number
+  soldPrice: number
+  soldTo: string
+  keptBy: string
+}
+
+const DROP_ORDER: DropDisposition[] = ['sold', 'fm', 'kept', 'unsold']
+
+const lootOpen = reactive<Record<number, boolean>>({})
+const drafts = reactive<Record<number, DropDraft>>({})
+const newDrops = reactive<Record<number, DropDraft>>({})
+
+function blankDraft(): DropDraft {
+  return { item: '', disposition: 'unsold', price: 0, soldPrice: 0, soldTo: '', keptBy: '' }
+}
+
+function draftOf(d: Drop) {
+  return (drafts[d.id] ??= {
+    item: d.item,
+    disposition: d.disposition,
+    price: d.price,
+    soldPrice: d.sold_price,
+    soldTo: d.sold_to,
+    keptBy: d.kept_by
+  })
+}
+
+function freshNew(raidId: number) {
+  return (newDrops[raidId] ??= blankDraft())
+}
+
+const lootableRaids = computed(() =>
+  (raids.value?.raids ?? []).filter((r) => r.status !== 'cancelled')
+)
+
+function toggleLoot(id: number) {
+  lootOpen[id] = !lootOpen[id]
+  if (lootOpen[id]) freshNew(id)
+}
+
+function attackersOf(r: Raid) {
+  return r.signups.filter((s) => s.kind === 'participant' && s.status === 'approved')
+}
+
+function shareOf(r: Raid, amount: number) {
+  const n = r.split.attackers
+  return n > 0 ? mesos(Math.floor(amount / n)) + ' each' : mesos(0)
+}
+
+async function saveDrop(d: Drop, raidId: number) {
+  const t = drafts[d.id]
+  try {
+    await updateDrop(d.id, {
+      item: t.item.trim(),
+      disposition: t.disposition,
+      price: t.price,
+      soldPrice: t.disposition === 'sold' ? t.soldPrice : undefined,
+      soldTo: t.disposition === 'sold' ? t.soldTo.trim() : undefined,
+      keptBy: t.disposition === 'kept' ? t.keptBy.trim() : undefined
+    })
+    showToast('Drop updated')
+  } catch (e: any) {
+    showToast(e?.data?.statusMessage ?? 'Failed to update drop', 'error')
+  }
+}
+
+async function removeDrop(d: Drop) {
+  if (!confirm(`Remove "${d.item}" from the raid loot?`)) return
+  try {
+    await deleteDrop(d.id)
+    delete drafts[d.id]
+    showToast('Drop removed')
+  } catch (e: any) {
+    showToast(e?.data?.statusMessage ?? 'Failed to remove drop', 'error')
+  }
+}
+
+async function addNewDrop(raidId: number) {
+  const t = newDrops[raidId] ??= blankDraft()
+  if (!t.item.trim()) return
+  try {
+    await addDrop(raidId, {
+      item: t.item.trim(),
+      disposition: t.disposition,
+      price: t.price,
+      soldPrice: t.disposition === 'sold' ? t.soldPrice : undefined,
+      soldTo: t.disposition === 'sold' ? t.soldTo.trim() : undefined,
+      keptBy: t.disposition === 'kept' ? t.keptBy.trim() : undefined
+    })
+    showToast('Drop added')
+    newDrops[raidId] = blankDraft()
+  } catch (e: any) {
+    showToast(e?.data?.statusMessage ?? 'Failed to add drop', 'error')
+  }
 }
 </script>
