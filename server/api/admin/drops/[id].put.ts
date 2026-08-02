@@ -1,20 +1,24 @@
 import { getSupabaseAdmin } from '../../../utils/supabase'
 import { requireAdmin } from '../../../utils/auth'
-import { validateDropPayload } from '../../../utils/raids'
+import { loadRaid, assertExpeditionLeader, validateDropPayload } from '../../../utils/raids'
 import { publishRaidChange } from '../../../utils/realtime'
 
 /**
- * Jr master only: update a drop. Any of item / disposition / price /
- * soldPrice / soldTo / keptBy can change — price changes on FM items flow
- * straight into the live split calculation.
+ * Expedition leader only: update a drop (item / status / price / soldTo /
+ * keptBy). Changing a listed price or flipping the status flows straight
+ * into the live split calculation.
  */
 export default defineEventHandler(async (event) => {
-  await requireAdmin(event)
+  const ctx = await requireAdmin(event)
   const id = Number(getRouterParam(event, 'id'))
 
   const client = getSupabaseAdmin()
   const { data: existing } = await client.from('raid_drops').select('*').eq('id', id).maybeSingle()
   if (!existing) throw createError({ statusCode: 404, statusMessage: 'Drop not found' })
+
+  const raid = await loadRaid(client, existing.raid_id)
+  if (!raid) throw createError({ statusCode: 404, statusMessage: 'Raid not found' })
+  assertExpeditionLeader(ctx, raid)
 
   const body = (await readBody(event).catch(() => ({}))) ?? {}
   const next: Record<string, unknown> = {

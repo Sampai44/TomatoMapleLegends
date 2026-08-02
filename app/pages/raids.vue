@@ -97,6 +97,9 @@
               <div class="loot-pub-head">
                 <span class="loot-pub-title">Loot split</span>
                 <span class="chip raid-chip boss-lv">{{ raid.split.attackers }} attacker{{ raid.split.attackers === 1 ? '' : 's' }}</span>
+                <span v-if="raid.split.attackers" class="chip raid-chip" :class="raid.split.allPaid ? 'chip-open' : 'chip-pending'">
+                  {{ raid.split.allPaid ? 'All paid' : raid.split.paidCount + '/' + raid.split.attackers + ' paid' }}
+                </span>
               </div>
               <div class="loot-pub-stats">
                 <span class="loot-pub-stat">

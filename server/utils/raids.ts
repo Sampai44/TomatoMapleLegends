@@ -27,6 +27,7 @@ export interface SignupRow {
   reason: string
   decided_by: string | null
   decided_at: string | null
+  paid_at: string | null
   created_at: string
 }
 
@@ -76,6 +77,11 @@ export interface RaidSplit {
   pendingCount: number
   keptCount: number
   unsoldCount: number
+  paidCount: number
+  unpaidCount: number
+  paidOut: number
+  owed: number
+  allPaid: boolean
 }
 
 export interface RaidView extends RaidRow {
@@ -93,7 +99,10 @@ export interface RaidView extends RaidRow {
 
 /** Equal-share loot split across the approved participant attackers. */
 export function computeRaidSplit(signups: SignupRow[], drops: DropRow[]): RaidSplit {
-  const attackers = signups.filter((s) => s.kind === 'participant' && s.status === 'approved').length
+  const attackers = signups.filter((s) => s.kind === 'participant' && s.status === 'approved')
+  const { length } = attackers
+  const paidCount = attackers.filter((s) => s.paid_at).length
+  const unpaidCount = length - paidCount
   let soldValue = 0
   let soldCount = 0
   let pendingValue = 0 // FM list price of not-yet-sold items
@@ -115,12 +124,12 @@ export function computeRaidSplit(signups: SignupRow[], drops: DropRow[]): RaidSp
     }
   }
 
-  const per = (total: number) => (attackers > 0 ? Math.floor(total / attackers) : 0)
+  const per = (total: number) => (length > 0 ? Math.floor(total / length) : 0)
   const soldPerAttacker = per(soldValue)
   const pendingPerAttacker = per(pendingValue)
 
   return {
-    attackers,
+    attackers: length,
     soldValue,
     pendingValue,
     totalValue: soldValue + pendingValue,
@@ -130,13 +139,38 @@ export function computeRaidSplit(signups: SignupRow[], drops: DropRow[]): RaidSp
     soldCount,
     pendingCount,
     keptCount,
-    unsoldCount
+    unsoldCount,
+    paidCount,
+    unpaidCount,
+    paidOut: paidCount * soldPerAttacker,
+    owed: unpaidCount * soldPerAttacker,
+    allPaid: length > 0 && unpaidCount === 0
   }
 }
 
 export async function loadRaid(client: ReturnType<typeof getSupabaseAdmin>, id: number) {
   const { data } = await client.from('boss_raids').select('*').eq('id', id).maybeSingle<RaidRow>()
   return data ?? null
+}
+
+/**
+ * Loot management is reserved for the expedition leader (the raid's `leader`,
+ * matched to the logged-in account), with the guild Master as a fallback so
+ * leadership is never locked out.
+ */
+export function assertExpeditionLeader(ctx: AuthContext, raid: Pick<RaidRow, 'leader'>) {
+  if (ctx.role !== 'admin') {
+    throw createError({ statusCode: 403, statusMessage: 'Only the expedition leader can manage loot' })
+  }
+  const me = ctx.member?.char_name ?? ''
+  const isLeader = !!raid.leader && me.trim().toLowerCase() === raid.leader.trim().toLowerCase()
+  const isMaster = ctx.member?.guild_rank === 'Master'
+  if (!isLeader && !isMaster) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: `Only ${raid.leader || 'the expedition leader'} can manage this raid's loot`
+    })
+  }
 }
 
 export function totalParticipantSeats(raid: Pick<RaidRow, 'slots'>) {

@@ -115,6 +115,7 @@ create table if not exists public.raid_signups (
   reason text not null default '',            -- jr master's rejection comment
   decided_by uuid references auth.users(id),
   decided_at timestamptz,
+  paid_at timestamptz,                     -- set when the leader pays this attacker's cut
   created_at timestamptz not null default now()
 );
 
@@ -193,3 +194,6 @@ create policy "drops are publicly readable"
 do $$ begin
   alter publication supabase_realtime add table public.raid_drops;
 exception when duplicate_object then null; end $$;
+
+-- Track whether the expedition leader has paid each approved attacker their cut.
+alter table public.raid_signups add column if not exists paid_at timestamptz;

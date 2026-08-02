@@ -252,6 +252,11 @@
                 <strong class="loot-val">{{ mesos(r.split.pendingValue) }}</strong>
                 <small class="muted">{{ mesos(r.split.pendingPerAttacker) }} per attacker</small>
               </div>
+              <div class="loot-stat">
+                <span class="loot-label">Paid to attackers</span>
+                <strong class="loot-val">{{ r.split.paidCount }}/{{ r.split.attackers }}</strong>
+                <small class="muted">{{ mesos(r.split.owed) }} still owed</small>
+              </div>
             </div>
 
             <div v-if="r.split.soldCount || r.split.pendingCount" class="loot-dist">
@@ -261,17 +266,31 @@
             </div>
 
             <div v-if="attackersOf(r).length" class="loot-attackers">
-              <span class="loot-label">Attackers</span>
+              <span class="loot-label">Attackers — {{ r.split.paidCount }}/{{ r.split.attackers }} paid</span>
               <ul class="loot-names">
-                <li v-for="a in attackersOf(r)" :key="a.id">
-                  {{ a.ign }} <span class="muted">{{ a.job || '—' }} Lv{{ a.level }}</span>
+                <li v-for="a in attackersOf(r)" :key="a.id" class="loot-attacker">
+                  <span class="loot-attacker-name">
+                    {{ a.ign }} <span class="muted">{{ a.job || '—' }} Lv{{ a.level }}</span>
+                  </span>
+                  <button
+                    v-if="canManage(r)"
+                    class="chip"
+                    :class="a.paid_at ? 'chip-approved' : 'chip-pending'"
+                    :disabled="paying === a.id"
+                    @click="togglePaid(a, r)"
+                  >
+                    {{ paying === a.id ? '…' : a.paid_at ? 'Paid ✓' : 'Unpaid' }}
+                  </button>
+                  <span v-else class="chip" :class="a.paid_at ? 'chip-approved' : 'chip-pending'">
+                    {{ a.paid_at ? 'Paid' : 'Unpaid' }}
+                  </span>
                 </li>
               </ul>
             </div>
 
             <ul v-if="r.drops.length" class="drop-list">
               <li v-for="d in r.drops" :key="d.id" class="drop-row">
-                <template v-if="draftOf(d)">
+                <template v-if="canManage(r) && draftOf(d)">
                   <input
                     v-model="draftOf(d).item"
                     class="drop-item"
@@ -297,10 +316,15 @@
                   <button class="btn btn-cream btn-sm" @click="saveDrop(d, r.id)">Save</button>
                   <button class="icon-btn" aria-label="Remove drop" @click="removeDrop(d)">×</button>
                 </template>
+                <template v-else>
+                  <span class="drop-pub-item">{{ d.item }}</span>
+                  <span class="chip raid-chip" :class="'drop-' + d.disposition">{{ dropShort(d.disposition) }}</span>
+                  <span class="muted">{{ dropViewText(d) }}</span>
+                </template>
               </li>
             </ul>
 
-            <div class="drop-add">
+            <div v-if="canManage(r)" class="drop-add">
               <input v-model="newDrops[r.id].item" class="drop-item" maxlength="40" placeholder="Item name" />
               <select v-model="newDrops[r.id].disposition" aria-label="Disposition">
                 <option v-for="o in DROP_ORDER" :key="o" :value="o">{{ DROP_LABEL[o] }}</option>
@@ -344,6 +368,7 @@ import {
 } from '~/composables/useRaids'
 import { SLOT_JOB_CHOICES, jobQualifies } from '#shared/jobs'
 import { BOSSES, bossOf } from '#shared/bosses'
+import { useAuth } from '~/composables/useAuth'
 import { useToasts } from '~/composables/useToasts'
 
 definePageMeta({ middleware: 'admin' })
@@ -353,8 +378,9 @@ useSeoMeta({
   ogTitle: 'Admin — Tomato Guild'
 })
 
-const { raids, refresh, approveSignup, declineSignup, createRaid, updateRaid, deleteRaid: deleteRaidApi, addDrop, updateDrop, deleteDrop } = useRaids()
+const { raids, refresh, approveSignup, declineSignup, createRaid, updateRaid, deleteRaid: deleteRaidApi, addDrop, updateDrop, deleteDrop, setSignupPaid } = useRaids()
 const { showToast } = useToasts()
+const { charName, guildRank } = useAuth()
 useRaidRealtime(refresh)
 
 interface JobRow {
@@ -667,6 +693,37 @@ function attackersOf(r: Raid) {
 function shareOf(r: Raid, amount: number) {
   const n = r.split.attackers
   return n > 0 ? mesos(Math.floor(amount / n)) + ' each' : mesos(0)
+}
+
+/** Loot & payment edits are reserved for this raid's expedition leader (or the Master). */
+function canManage(r: Raid) {
+  const me = charName.value?.trim() ?? ''
+  const isLeader = !!r.leader && me.toLowerCase() === r.leader.trim().toLowerCase()
+  return isLeader || guildRank.value === 'Master'
+}
+
+const paying = ref<number | null>(null)
+async function togglePaid(a: Signup, r: Raid) {
+  paying.value = a.id
+  try {
+    await setSignupPaid(a.id, !a.paid_at)
+    showToast(a.paid_at ? `${a.ign} marked unpaid` : `${a.ign} marked paid`)
+  } catch (e: any) {
+    showToast(e?.data?.statusMessage ?? 'Failed to update payment', 'error')
+  } finally {
+    paying.value = null
+  }
+}
+
+function dropShort(d: DropDisposition) {
+  return { sold: 'Sold', fm: 'FM', kept: 'Kept', unsold: 'Undecided' }[d]
+}
+
+function dropViewText(d: Drop) {
+  if (d.disposition === 'sold') return `sold ${mesos(d.sold_price)}${d.sold_to ? ` → ${d.sold_to}` : ''}`
+  if (d.disposition === 'fm') return `listed ${mesos(d.price)}`
+  if (d.disposition === 'kept') return `kept by ${d.kept_by || 'leader'}`
+  return 'not yet decided'
 }
 
 async function saveDrop(d: Drop, raidId: number) {

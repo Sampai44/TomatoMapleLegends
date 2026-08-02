@@ -24,6 +24,7 @@ export interface Signup {
   reason: string
   decided_by: string | null
   decided_at: string | null
+  paid_at: string | null
   created_at: string
 }
 
@@ -55,6 +56,11 @@ export interface RaidSplit {
   pendingCount: number
   keptCount: number
   unsoldCount: number
+  paidCount: number
+  unpaidCount: number
+  paidOut: number
+  owed: number
+  allPaid: boolean
 }
 
 export interface Raid {
@@ -163,7 +169,12 @@ export function useRaids() {
     await refresh()
   }
 
-  return { raids, pending, error, refresh, signUp, withdraw, approveSignup, declineSignup, createRaid, updateRaid, deleteRaid, addDrop, updateDrop, deleteDrop }
+  async function setSignupPaid(id: number, paid: boolean) {
+    await $fetch(`/api/admin/signups/${id}/pay`, { method: 'POST', body: { paid } })
+    await refresh()
+  }
+
+  return { raids, pending, error, refresh, signUp, withdraw, approveSignup, declineSignup, createRaid, updateRaid, deleteRaid, addDrop, updateDrop, deleteDrop, setSignupPaid }
 }
 
 /** Seats taken (approved) per (party, job) key. */
